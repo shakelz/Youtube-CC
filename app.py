@@ -86,49 +86,53 @@ def download_captions(video_id, lang='de'):
 def parse_vtt(vtt_content):
     segments = []
     current_time = ""
-    current_text = ""
+    block_lines = []
+    last_block_lines = [] # Pichle block ko yaad rakhne ke liye
 
-    # Raw parsing to extract time and text
     for line in vtt_content.split('\n'):
         line = line.strip()
 
+        # Jab naya timestamp aaye
         if '-->' in line:
-            if current_text:
-                text = html.unescape(re.sub(r'<[^>]+>', '', current_text)).strip()
-                if text:
-                    segments.append({'time': current_time, 'text': text})
+            if current_time and block_lines:
+                # HTML tags aur kachra saaf karo har line se
+                cleaned_block = [html.unescape(re.sub(r'<[^>]+>', '', l)).strip() for l in block_lines if l.strip()]
+                
+                if cleaned_block:
+                    # 🔥 THE MAGIC FIX: Rolling CC Detection
+                    # Agar naye block ki pehli line pichle block ki aakhri line se match hoti hai, toh usko uda do!
+                    if last_block_lines and (cleaned_block[0] in last_block_lines[-1] or last_block_lines[-1] in cleaned_block[0]):
+                        cleaned_block.pop(0) # Purana repeat hua text delete!
+                    
+                    if cleaned_block:
+                        # Bachi hui nayi lines ko jod do
+                        text = " ".join(cleaned_block)
+                        # Ek aakhri check: Agar exact sentence wapas aara toh ignore karo
+                        if not segments or segments[-1]['text'] != text:
+                            segments.append({'time': current_time, 'text': text})
+                        
+                        last_block_lines = cleaned_block
+            
             current_time = line.split(' --> ')[0]
-            current_text = ""
+            block_lines = []
+            
+        # Metadata skip karke text lines collect karo
         elif line and 'WEBVTT' not in line and not line.isdigit():
-            if not line.startswith('Kind:') and not line.startswith('Language:'):
-                current_text += ' ' + line
+            if not line.startswith('Kind:') and not line.startswith('Language:') and not line.startswith('Style:'):
+                block_lines.append(line)
 
-    if current_text:
-        text = html.unescape(re.sub(r'<[^>]+>', '', current_text)).strip()
-        if text:
-            segments.append({'time': current_time, 'text': text})
+    # Aakhri bache hue block ke liye
+    if current_time and block_lines:
+        cleaned_block = [html.unescape(re.sub(r'<[^>]+>', '', l)).strip() for l in block_lines if l.strip()]
+        if cleaned_block:
+            if last_block_lines and (cleaned_block[0] in last_block_lines[-1] or last_block_lines[-1] in cleaned_block[0]):
+                cleaned_block.pop(0)
+            if cleaned_block:
+                text = " ".join(cleaned_block)
+                if not segments or segments[-1]['text'] != text:
+                    segments.append({'time': current_time, 'text': text})
 
-    # The Magic Fix (*Die magische Lösung*) - Remove rolling duplicates
-    cleaned_segments = []
-    for i in range(len(segments)):
-        curr_text = segments[i]['text'].strip()
-        
-        if len(curr_text) < 2:
-            continue
-            
-        # Agar yeh line agli line ka hissa hai, ignore karo
-        if i < len(segments) - 1:
-            next_text = segments[i+1]['text'].strip()
-            if curr_text in next_text:
-                continue 
-
-        # Exact repeat ignore karo
-        if cleaned_segments and cleaned_segments[-1]['text'] == curr_text:
-            continue
-            
-        cleaned_segments.append(segments[i])
-
-    return cleaned_segments
+    return segments
 
 def method_cc(video_id, lang):
     vtt_file = download_captions(video_id, lang)
