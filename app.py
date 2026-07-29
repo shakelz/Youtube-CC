@@ -364,7 +364,7 @@ if st.button("🚀 Load Sync Player", use_container_width=True):
                 else:
                     st.write("📥 Audio download hora...")
                     st.write("🎤 Whisper AI transcribe karra...")
-                    segments = method_whisper(video_id, language, "tiny")
+                    segments = method_whisper(video_id, language, "tiny") # Tiny use karna Streamlit ke liye
 
                 if not segments:
                     status.update(label="❌ Failed to extract subtitles. (JavaScript / Cookie error)", state="error")
@@ -382,25 +382,27 @@ if st.button("🚀 Load Sync Player", use_container_width=True):
 
                     status.update(label="✅ Player is Ready!", state="complete")
 
-            # Display the Synced HTML Player
-            st.markdown("---")
-            components.html(html_player, height=750, scrolling=False)
+            # 🔥 YEH NAYA ADD KIYA: Sirf tab UI dikhao jab segments mil gaye ho
+            if segments:
+                # Display the Synced HTML Player
+                st.markdown("---")
+                components.html(html_player, height=750, scrolling=False)
 
-            # Display Text Outputs & Download Button
-            st.markdown("### 📝 Transcripts")
-            
-            tab1, tab2, tab3 = st.tabs(["Interleaved (DE + EN)", "German Only", "English Only"])
-            with tab1:
-                st.text_area("Line by Line", interleaved_text, height=300)
-            with tab2:
-                st.text_area("Original", original_text, height=300)
-            with tab3:
-                st.text_area("Translation", translated_text, height=300)
-            
-            st.download_button(
-                label="💾 Download SRT Subtitles",
-                data=srt_content,
-                file_name=f"{video_id}_subtitles.srt",
-                mime="text/plain",
-                use_container_width=True
-            )
+                # Display Text Outputs & Download Button
+                st.markdown("### 📝 Transcripts")
+                
+                tab1, tab2, tab3 = st.tabs(["Interleaved (DE + EN)", "German Only", "English Only"])
+                with tab1:
+                    st.text_area("Line by Line", interleaved_text, height=300)
+                with tab2:
+                    st.text_area("Original", original_text, height=300)
+                with tab3:
+                    st.text_area("Translation", translated_text, height=300)
+                
+                st.download_button(
+                    label="💾 Download SRT Subtitles",
+                    data=srt_content,
+                    file_name=f"{video_id}_subtitles.srt",
+                    mime="text/plain",
+                    use_container_width=True
+                )
