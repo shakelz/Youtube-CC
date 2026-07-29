@@ -364,7 +364,7 @@ if st.button("🚀 Load Sync Player", use_container_width=True):
                 else:
                     st.write("📥 Audio download hora...")
                     st.write("🎤 Whisper AI transcribe karra...")
-                    segments = method_whisper(video_id, language, "base")
+                    segments = method_whisper(video_id, language, "tiny")
 
                 if not segments:
                     status.update(label="❌ Failed to extract subtitles. (JavaScript / Cookie error)", state="error")
