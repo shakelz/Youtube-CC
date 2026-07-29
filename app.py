@@ -36,16 +36,6 @@ def seconds_to_vtt(seconds):
     s = seconds % 60
     return f"{h:02d}:{m:02d}:{s:06.3f}".replace('.', ',')
 
-def remove_duplicates(segments):
-    seen = set()
-    unique = []
-    for seg in segments:
-        norm = seg['text'].lower().strip()
-        if norm not in seen and len(norm) > 1:
-            seen.add(norm)
-            unique.append(seg)
-    return unique
-
 def translate_segments(segments):
     try:
         translator = GoogleTranslator(source='auto', target='en')
@@ -63,7 +53,7 @@ def translate_segments(segments):
     return segments
 
 # ============================================
-# METHOD 1: YOUTUBE CC
+# METHOD 1: YOUTUBE CC (WITH SMART PARSER)
 # ============================================
 
 def download_captions(video_id, lang='de'):
@@ -80,7 +70,7 @@ def download_captions(video_id, lang='de'):
         'outtmpl': 'temp_subs',
         'quiet': True,
         'ignoreerrors': True,
-        'cookiefile': 'cookies.txt', # Make sure cookies.txt is in the same folder
+        'cookiefile': 'cookies.txt', # Pukka cookies.txt is folder me hona
         'extractor_args': {'youtube': ['player_client=ios,android']} 
     }
 
@@ -98,6 +88,7 @@ def parse_vtt(vtt_content):
     current_time = ""
     current_text = ""
 
+    # Raw parsing to extract time and text
     for line in vtt_content.split('\n'):
         line = line.strip()
 
@@ -117,7 +108,27 @@ def parse_vtt(vtt_content):
         if text:
             segments.append({'time': current_time, 'text': text})
 
-    return remove_duplicates(segments)
+    # The Magic Fix (*Die magische Lösung*) - Remove rolling duplicates
+    cleaned_segments = []
+    for i in range(len(segments)):
+        curr_text = segments[i]['text'].strip()
+        
+        if len(curr_text) < 2:
+            continue
+            
+        # Agar yeh line agli line ka hissa hai, ignore karo
+        if i < len(segments) - 1:
+            next_text = segments[i+1]['text'].strip()
+            if curr_text in next_text:
+                continue 
+
+        # Exact repeat ignore karo
+        if cleaned_segments and cleaned_segments[-1]['text'] == curr_text:
+            continue
+            
+        cleaned_segments.append(segments[i])
+
+    return cleaned_segments
 
 def method_cc(video_id, lang):
     vtt_file = download_captions(video_id, lang)
@@ -323,7 +334,6 @@ function onYouTubeIframeAPIReady() {{
 st.set_page_config(page_title="Lerne Deutsch - Sync Player", page_icon="🎬", layout="centered")
 
 st.markdown("<h2 style='text-align: center; color: #e94560;'>📱 Mobile Video Sync App</h2>", unsafe_allow_html=True)
-st.caption("Streamlit Edition - Perfect for running on your local machine.")
 
 # Inputs
 url_input = st.text_input("📺 YouTube URL", placeholder="Paste YouTube Link Here...")
@@ -342,7 +352,6 @@ if st.button("🚀 Load Sync Player", use_container_width=True):
         if not video_id:
             st.error("❌ Invalid URL")
         else:
-            # St.status provides a nice collapsible progress box
             with st.status("⏳ Video process hora, thoda sabr karo...", expanded=True) as status:
                 
                 if "CC" in method_choice:
@@ -354,7 +363,7 @@ if st.button("🚀 Load Sync Player", use_container_width=True):
                     segments = method_whisper(video_id, language, "base")
 
                 if not segments:
-                    status.update(label="❌ Failed to extract subtitles. (Node.js ki zaroorat pad sakti hai)", state="error")
+                    status.update(label="❌ Failed to extract subtitles. (JavaScript / Cookie error)", state="error")
                 else:
                     st.write("🌍 English mein translate hora...")
                     segments = translate_segments(segments)
@@ -362,7 +371,6 @@ if st.button("🚀 Load Sync Player", use_container_width=True):
                     st.write("🎬 Player generate hora...")
                     html_player = build_synced_player(segments, video_id)
                     
-                    # Generate plain texts for tabs
                     interleaved_text = '\n\n'.join([f"[{s['time']}] 🇩🇪 {s['text']}\n         🇬🇧 {s['translated']}" for s in segments])
                     original_text = '\n'.join([f"[{s['time']}] {s['text']}" for s in segments])
                     translated_text = '\n'.join([f"[{s['time']}] {s['translated']}" for s in segments])
