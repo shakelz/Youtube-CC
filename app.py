@@ -71,7 +71,13 @@ def download_captions(video_id, lang='de'):
         'quiet': True,
         'ignoreerrors': True,
         'cookiefile': 'cookies.txt', # Pukka cookies.txt is folder me hona
-        'extractor_args': {'youtube': ['player_client=ios,android']} 
+        'extractor_args': {'youtube': ['player_client=ios,android']},
+        'nocheckcertificate': True,
+        'ignoreerrors': True,
+        'no_warnings': True,
+        'http_headers': {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        }
     }
 
     try:
@@ -162,7 +168,13 @@ def download_audio(video_id):
         'outtmpl': 'temp_audio',
         'quiet': True,
         'cookiefile': 'cookies.txt',
-        'extractor_args': {'youtube': ['player_client=ios,android']}
+        'extractor_args': {'youtube': ['player_client=ios,android']},
+        'nocheckcertificate': True,
+        'ignoreerrors': True,
+        'no_warnings': True,
+        'http_headers': {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        }
     }
 
     try:
