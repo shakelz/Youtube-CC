@@ -246,7 +246,7 @@ function onYouTubeIframeAPIReady() {{
     return html_code
 
 # ============================================
-# SECURE COOKIE HANDLING
+# SECURE COOKIE HANDLING (Optional)
 # ============================================
 
 def secure_cookie_upload():
@@ -262,9 +262,9 @@ def secure_cookie_upload():
                 st.rerun()
         return True
 
-    st.info("🔒 **Your cookies are safe:** They are stored only in your browser session and never saved to disk or shared.")
+    st.info("🔒 Cookies are optional but help bypass YouTube blocks.")
     uploaded_file = st.file_uploader(
-        "📁 Upload cookies.txt (from your browser)",
+        "📁 Upload cookies.txt (optional, from your browser)",
         type=['txt'],
         help="Export cookies using 'Get cookies.txt' extension from your logged-in YouTube session"
     )
@@ -312,85 +312,60 @@ def get_cookie_path():
     return None
 
 # ============================================
-# IMPROVED YT-DLP FUNCTIONS WITH IMPERSONATION
+# SIMPLIFIED YT-DLP FUNCTIONS (No Impersonation)
 # ============================================
 
 def download_audio(video_id):
-    """Download audio with impersonation to bypass blocks"""
+    """Download audio with simplified settings"""
     for f in glob.glob('temp_audio*') + glob.glob('*.mp3') + glob.glob('*.m4a'):
         try: os.remove(f)
         except: pass
 
     cookie_path = get_cookie_path()
     
-    # CRITICAL: Use impersonation to look like a real browser
+    # Simplified options without impersonation
     ydl_opts = {
-        'format': 'bestaudio[ext=m4a]/bestaudio[ext=aac]/bestaudio[ext=mp3]/bestaudio',
+        'format': 'bestaudio/best',
         'postprocessors': [{
             'key': 'FFmpegExtractAudio',
             'preferredcodec': 'mp3',
             'preferredquality': '192',
         }],
         'outtmpl': 'temp_audio',
-        'quiet': False,
-        'no_warnings': False,
+        'quiet': True,
+        'no_warnings': True,
         'ignoreerrors': True,
-        # CRITICAL: Impersonate Chrome browser
-        'impersonate': 'chrome-110',
-        # Use multiple clients
         'extractor_args': {
             'youtube': {
-                'player_client': ['android', 'ios', 'web'],
-                'skip': ['dash', 'hls'],
-                'player_skip': ['js', 'configs'],
+                'player_client': ['android', 'ios'],
             }
-        },
-        # Add headers to look like a browser
-        'headers': {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36',
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-            'Accept-Language': 'en-us,en;q=0.5',
-            'Sec-Fetch-Mode': 'navigate',
         }
     }
     
     if cookie_path and os.path.exists(cookie_path):
         ydl_opts['cookiefile'] = cookie_path
         st.write("🔑 Using session cookies...")
-    else:
-        st.warning("⚠️ No cookies found. Trying without cookies...")
     
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            # First try to get info to see available formats
             st.write("📡 Fetching video info...")
-            info = ydl.extract_info(f"https://youtu.be/{video_id}", download=False)
-            
-            if info:
-                st.write(f"✅ Found video: {info.get('title', 'Unknown')[:50]}...")
-                
-                # Try downloading audio
-                st.write("⬇️ Downloading audio...")
-                ydl.download([f"https://youtu.be/{video_id}"])
-            else:
-                st.error("❌ Could not fetch video info")
-                return None
+            ydl.download([f"https://youtu.be/{video_id}"])
                 
     except Exception as e:
         st.error(f"❌ Audio download error: {str(e)}")
         return None
     
-    # Look for audio files with different extensions
+    # Look for audio files
     audio_files = glob.glob('temp_audio.mp3') + glob.glob('temp_audio.m4a') + glob.glob('temp_audio.*')
     if audio_files:
-        st.write(f"✅ Audio downloaded: {os.path.basename(audio_files[0])}")
+        st.write(f"✅ Audio downloaded")
         return audio_files[0]
     else:
         st.error("❌ No audio file found after download")
         return None
 
 def download_captions(video_id, lang='de'):
-    """Download YouTube captions with impersonation"""
+    """Download YouTube captions"""
     for f in glob.glob('temp_subs*'):
         try: os.remove(f)
         except: pass
@@ -404,18 +379,12 @@ def download_captions(video_id, lang='de'):
         'subtitlesformat': 'vtt',
         'skip_download': True,
         'outtmpl': 'temp_subs',
-        'quiet': False,
+        'quiet': True,
         'ignoreerrors': True,
-        'impersonate': 'chrome-110',
         'extractor_args': {
             'youtube': {
-                'player_client': ['android', 'ios', 'web'],
-                'skip': ['dash', 'hls'],
-                'player_skip': ['js', 'configs'],
+                'player_client': ['android', 'ios'],
             }
-        },
-        'headers': {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36',
         }
     }
     
@@ -505,10 +474,10 @@ def method_whisper(video_id, lang, model_size):
 st.set_page_config(page_title="Lerne Deutsch - Sync Player", page_icon="🎬", layout="centered")
 st.markdown("<h2 style='text-align: center; color: #e94560;'>📱 Mobile Video Sync App</h2>", unsafe_allow_html=True)
 
-# --- Cookie Upload Section ---
-with st.expander("🔐 Cookie Authentication (Required)", expanded=True):
+# --- Cookie Upload Section (Optional) ---
+with st.expander("🔐 Cookie Authentication (Optional)", expanded=False):
     st.markdown("""
-    **⚠️ IMPORTANT:** YouTube blocks cloud servers. You MUST upload cookies from a logged-in YouTube session.
+    **Cookies are optional** but can help bypass YouTube blocks.
     
     **How to get cookies:**
     1. Install extension: "Get cookies.txt LOCALLY" (Chrome/Firefox)
@@ -518,15 +487,12 @@ with st.expander("🔐 Cookie Authentication (Required)", expanded=True):
     """)
     cookies_loaded = secure_cookie_upload()
 
-if not st.session_state.get('cookies_uploaded', False):
-    st.error("🚫 **YouTube access requires cookies!** Please upload your cookies.txt above.")
-
 # --- Main Input ---
 url_input = st.text_input("📺 YouTube URL", placeholder="Paste YouTube Link Here...")
 
 col1, col2 = st.columns(2)
 with col1:
-    method_choice = st.radio("🛠️ Method", ["🎤 Whisper AI (Recommended)", "⚡ YouTube CC"])
+    method_choice = st.radio("🛠️ Method", ["🎤 Whisper AI", "⚡ YouTube CC"])
 with col2:
     language = st.selectbox("🎤 Language", ["de", "en", "auto"], index=0)
 
@@ -544,13 +510,11 @@ else:
 # --- Process Button ---
 if st.button("🚀 Load Sync Player", use_container_width=True):
     if not url_input:
-        st.error("❌ Link toh daalo ustad!")
-    elif not st.session_state.get('cookies_uploaded', False):
-        st.error("❌ Please upload cookies.txt first!")
+        st.error("❌ Please enter a YouTube URL!")
     else:
         video_id = extract_video_id(url_input)
         if not video_id:
-            st.error("❌ Invalid URL")
+            st.error("❌ Invalid YouTube URL")
         else:
             segments = None
             html_player = ""
@@ -567,10 +531,11 @@ if st.button("🚀 Load Sync Player", use_container_width=True):
                     if not segments:
                         status.update(label="❌ Failed to extract subtitles.", state="error")
                         st.error("❌ Could not get subtitles from this video.")
-                        st.info("💡 **Troubleshooting:**\n"
-                               "1. Make sure cookies.txt is from a logged-in YouTube session\n"
+                        st.info("💡 **Tips:**\n"
+                               "1. Upload cookies.txt from a logged-in YouTube session\n"
                                "2. Try a different video\n"
-                               "3. The video might not have captions available")
+                               "3. The video might not have captions available\n"
+                               "4. Try the other method (YouTube CC or Whisper)")
                     else:
                         st.write("🌍 Translating to English...")
                         segments = translate_segments(segments)
