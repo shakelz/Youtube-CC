@@ -88,7 +88,7 @@ def parse_vtt(vtt_content):
     current_time = ""
     block_lines = []
 
-    # Step 1: Raw VTT blocks collect karo
+    # Step 1: Raw VTT lines collect karo
     for line in vtt_content.split('\n'):
         line = line.strip()
 
@@ -111,48 +111,53 @@ def parse_vtt(vtt_content):
             text = " ".join(cleaned_block)
             raw_segments.append({'time': current_time, 'text': text})
 
-    # Step 2: 🔥 AGGRESSIVE REPETITION KILLER (Yahan poora kachra saaf hoga)
-    deduped_segments = []
-    last_added_text = ""
-
+    # Step 2: 🔥 STRICT ROLLING WINDOW DE-DUPLICATION
+    # YouTube ke rolling text ko pakad kar sirf naya unique hissa nikalne ka logic
+    filtered_phrases = []
+    
     for seg in raw_segments:
         text = seg['text'].strip()
         
-        # Music tags ya noise hatao
+        # Noise aur music tags hatao
         if text.lower() in ["[musik]", "[music]", "♪", "[räuspern]"]:
             continue
 
-        # YouTube ki rolling triplication hatane ka logic:
-        # Agar text mein words bar-bar duplicate ho rahe hain, toh unko un-cluster karo
+        # Words mein todo taaki overlap check kar sakein
         words = text.split()
-        if len(words) > 4:
-            # Check if the first half of words equals the second half
-            half = len(words) // 2
-            if words[:half] == words[half:2*half]:
-                words = words[:half]
-                text = " ".join(words)
-            elif len(words) > 8 and words[:len(words)//3] == words[len(words)//3:2*(len(words)//3)]:
-                words = words[:len(words)//3]
-                text = " ".join(words)
-
-        # Agar yeh exact text pichle text ke andar pehle hi aachuka hai, toh skip karo
-        if text.lower() in last_added_text.lower():
+        if not words:
             continue
+
+        # Agar yeh sentence bilkul chota hai ya noise hai toh skip karo
+        if len(words) <= 2 and filtered_phrases and words[0].lower() == filtered_phrases[-1]['text'].split()[-1].lower():
+            continue
+
+        # Agar pichle segment ka aakhri hissa is naye segment ki shuruat mein repeat ho raha hai, toh overlap kaat do
+        if filtered_phrases:
+            last_text = filtered_phrases[-1]['text']
+            last_words = last_text.split()
             
-        # Agar pichla text is naye text ke andar hai, toh pichle wale ko chhota karke naya wala rakh lo
-        if last_added_text.lower() in text.lower() and len(text) > len(last_added_text):
-            if deduped_segments:
-                deduped_segments.pop() # Purana adhoora/repetitive block udao
+            # Check overlap between words
+            overlap_index = -1
+            for i in range(len(words)):
+                # Match chunks of words
+                sub_chunk = " ".join(words[:i+1])
+                if sub_chunk.lower() in last_text.lower() and len(sub_chunk) > 5:
+                    overlap_index = i
+            
+            # Agar overlap mila, toh sirf naya (non-overlapping) hissa rakho
+            if overlap_index != -1 and overlap_index < len(words) - 1:
+                words = words[overlap_index+1:]
+                text = " ".join(words)
 
-        last_added_text = text
-        deduped_segments.append({'time': seg['time'], 'text': text})
+        if text and len(text.strip()) > 1:
+            filtered_phrases.append({'time': seg['time'], 'text': text})
 
-    # Step 3: Full Sentence Merger (Jab tak full stop na aaye, ek line mein jodo)
+    # Step 3: Full Sentence Merger (. ! ? ke basis par clean blocks banana)
     final_sentences = []
     current_time_slot = None
     buffer_words = []
 
-    for seg in deduped_segments:
+    for seg in filtered_phrases:
         if current_time_slot is None:
             current_time_slot = seg['time']
 
@@ -160,8 +165,8 @@ def parse_vtt(vtt_content):
         current_sentence = " ".join(buffer_words)
         current_sentence = re.sub(r'\s+', ' ', current_sentence).strip()
 
-        # Jab sentence complete ho jaye (. ! ?) ya words bahut jyada ho jayein
-        if current_sentence.endswith(('.', '!', '?')) or len(buffer_words) >= 14:
+        # Jab sentence full stop, exclamation, question mark pe khatam ho ya words limit reach ho jaye
+        if current_sentence.endswith(('.', '!', '?')) or len(buffer_words) >= 12:
             final_sentences.append({
                 'time': current_time_slot,
                 'text': current_sentence
@@ -177,7 +182,6 @@ def parse_vtt(vtt_content):
         })
 
     return final_sentences
-    
 
 def method_cc(video_id, lang):
     vtt_file = download_captions(video_id, lang)
