@@ -2,4 +2,4 @@ gradio
 yt-dlp
 openai-whisper
 deep-translator
-streamlit
+faster-whisper
