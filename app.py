@@ -88,7 +88,7 @@ def parse_vtt(vtt_content):
     current_time = ""
     block_lines = []
 
-    # Step 1: VTT ko raw blocks mein parse karo
+    # Step 1: Raw VTT blocks collect karo
     for line in vtt_content.split('\n'):
         line = line.strip()
 
@@ -111,59 +111,73 @@ def parse_vtt(vtt_content):
             text = " ".join(cleaned_block)
             raw_segments.append({'time': current_time, 'text': text})
 
-    # Step 2: YouTube ki rolling repetition aur infinite word-triplication ko saaf karo
-    unique_phrases = []
-    seen_texts = set()
+    # Step 2: 🔥 AGGRESSIVE REPETITION KILLER (Yahan poora kachra saaf hoga)
+    deduped_segments = []
+    last_added_text = ""
 
     for seg in raw_segments:
-        txt = seg['text'].strip()
-        # Music tags ya unwanted words ignore karo
-        if txt.lower() in ["[musik]", "[music]", "♪", "[räuspern]"]:
+        text = seg['text'].strip()
+        
+        # Music tags ya noise hatao
+        if text.lower() in ["[musik]", "[music]", "♪", "[räuspern]"]:
             continue
-            
-        # YouTube auto-caption mein jo words bar-bar repeat hote hain (e.g. "was ist passiert was ist passiert") unko fix karna:
-        words = txt.split()
-        if len(words) > 6:
-            # Check for immediate internal repetition (half string matching)
+
+        # YouTube ki rolling triplication hatane ka logic:
+        # Agar text mein words bar-bar duplicate ho rahe hain, toh unko un-cluster karo
+        words = text.split()
+        if len(words) > 4:
+            # Check if the first half of words equals the second half
             half = len(words) // 2
             if words[:half] == words[half:2*half]:
-                txt = " ".join(words[:half])
+                words = words[:half]
+                text = " ".join(words)
+            elif len(words) > 8 and words[:len(words)//3] == words[len(words)//3:2*(len(words)//3)]:
+                words = words[:len(words)//3]
+                text = " ".join(words)
 
-        # Normalize lowercase for duplicate tracking
-        norm = txt.lower()
-        if norm not in seen_texts and len(txt) > 2:
-            seen_texts.add(norm)
-            unique_phrases.append({'time': seg['time'], 'text': txt})
+        # Agar yeh exact text pichle text ke andar pehle hi aachuka hai, toh skip karo
+        if text.lower() in last_added_text.lower():
+            continue
+            
+        # Agar pichla text is naye text ke andar hai, toh pichle wale ko chhota karke naya wala rakh lo
+        if last_added_text.lower() in text.lower() and len(text) > len(last_added_text):
+            if deduped_segments:
+                deduped_segments.pop() # Purana adhoora/repetitive block udao
 
-    # Step 3: Full Sentence Merger (Jab tak sentence complete na ho, jodge jao)
-    merged_segments = []
-    current_merged_time = None
-    sentence_accumulator = []
+        last_added_text = text
+        deduped_segments.append({'time': seg['time'], 'text': text})
 
-    for seg in unique_phrases:
-        if current_merged_time is None:
-            current_merged_time = seg['time']
+    # Step 3: Full Sentence Merger (Jab tak full stop na aaye, ek line mein jodo)
+    final_sentences = []
+    current_time_slot = None
+    buffer_words = []
 
-        sentence_accumulator.append(seg['text'])
-        full_text = " ".join(sentence_accumulator)
-        full_text = re.sub(r'\s+', ' ', full_text).strip()
+    for seg in deduped_segments:
+        if current_time_slot is None:
+            current_time_slot = seg['time']
 
-        # Agar sentence full stop, exclamation, question mark pe khatam ho ya lamba ho jaye
-        if full_text.endswith(('.', '!', '?')) or len(sentence_accumulator) >= 4:
-            merged_segments.append({
-                'time': current_merged_time,
-                'text': full_text
+        buffer_words.extend(seg['text'].split())
+        current_sentence = " ".join(buffer_words)
+        current_sentence = re.sub(r'\s+', ' ', current_sentence).strip()
+
+        # Jab sentence complete ho jaye (. ! ?) ya words bahut jyada ho jayein
+        if current_sentence.endswith(('.', '!', '?')) or len(buffer_words) >= 14:
+            final_sentences.append({
+                'time': current_time_slot,
+                'text': current_sentence
             })
-            sentence_accumulator = []
-            current_merged_time = None
+            buffer_words = []
+            current_time_slot = None
 
-    if sentence_accumulator:
-        merged_segments.append({
-            'time': current_merged_time if current_merged_time else "00:00:00.000",
-            'text': " ".join(sentence_accumulator).strip()
+    # Bacha hua buffer dalne ke liye
+    if buffer_words:
+        final_sentences.append({
+            'time': current_time_slot if current_time_slot else "00:00:00.000",
+            'text': " ".join(buffer_words).strip()
         })
 
-    return merged_segments
+    return final_sentences
+    
 
 def method_cc(video_id, lang):
     vtt_file = download_captions(video_id, lang)
