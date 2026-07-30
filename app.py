@@ -233,26 +233,35 @@ def build_synced_player(segments, video_id):
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <style>
 * {{ margin: 0; padding: 0; box-sizing: border-box; }}
-body, html {{ height: 100%; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: transparent; }}
-.container {{ display: flex; flex-direction: column; height: 100vh; width: 100%; max-width: 600px; margin: 0 auto; background: #1a1a2e; border-radius: 12px; overflow: hidden; }}
-.video-panel {{ flex-shrink: 0; width: 100%; background: #000; z-index: 10; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }}
+body, html {{ height: 100%; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: #0a0a1a; overflow: hidden; }}
+.container {{ display: flex; flex-direction: column; height: 100vh; width: 100%; background: #1a1a2e; overflow: hidden; }}
+
+/* Video stays locked at the top */
+.video-panel {{ flex-shrink: 0; width: 100%; background: #000; z-index: 10; position: sticky; top: 0; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }}
 .video-wrapper {{ position: relative; padding-bottom: 56.25%; height: 0; }}
 .video-wrapper iframe {{ position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: none; }}
-.transcript-panel {{ flex: 1; display: flex; flex-direction: column; overflow: hidden; }}
-.header {{ padding: 12px 15px; background: #16213e; color: #e94560; font-weight: bold; font-size: 14px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #0f3460; }}
-.progress {{ height: 4px; background: #0f3460; width: 100%; }}
+
+/* Transcript section takes remaining space and scrolls independently */
+.transcript-panel {{ flex: 1; display: flex; flex-direction: column; overflow: hidden; background: #1a1a2e; }}
+.header {{ padding: 12px 15px; background: #16213e; color: #e94560; font-weight: bold; font-size: 14px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #0f3460; flex-shrink: 0; }}
+.progress {{ height: 4px; background: #0f3460; width: 100%; flex-shrink: 0; }}
 .progress-fill {{ height: 100%; background: #e94560; width: 0%; transition: width 0.3s linear; }}
-.transcript-body {{ flex: 1; overflow-y: auto; padding: 15px; scroll-behavior: smooth; }}
+.transcript-body {{ flex: 1; overflow-y: auto; padding: 15px; scroll-behavior: smooth; -webkit-overflow-scrolling: touch; }}
+
+/* Single Line Item */
 .line {{ padding: 15px; margin-bottom: 12px; border-radius: 10px; cursor: pointer; border-left: 4px solid transparent; background: rgba(255,255,255,0.02); transition: all 0.3s ease; }}
 .line:active {{ background: rgba(255,255,255,0.05); }}
 .line.active {{ background: rgba(233,69,96,0.15); border-left-color: #e94560; transform: scale(1.02); box-shadow: 0 4px 10px rgba(0,0,0,0.2); }}
+
 .ts {{ color: #e94560; font-size: 12px; font-weight: bold; margin-bottom: 6px; display: inline-block; background: rgba(233,69,96,0.1); padding: 2px 8px; border-radius: 12px; }}
 .de {{ font-size: 18px; color: #ffffff; font-weight: 500; margin-bottom: 6px; line-height: 1.4; }}
 .en {{ font-size: 15px; color: #a0a0b5; font-style: italic; line-height: 1.3; }}
+
 .transcript-body::-webkit-scrollbar {{ width: 4px; }}
 .transcript-body::-webkit-scrollbar-track {{ background: transparent; }}
 .transcript-body::-webkit-scrollbar-thumb {{ background: #e94560; border-radius: 4px; }}
 </style>
+
 </head>
 <body>
 <div class="container">
