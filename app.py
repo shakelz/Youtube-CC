@@ -1,7 +1,7 @@
 import streamlit as st
 import streamlit.components.v1 as components
 import yt_dlp
-from faster_whisper import WhisperModel  # ✅ Changed from whisper
+from faster_whisper import WhisperModel
 import re
 import os
 import glob
@@ -312,10 +312,53 @@ def get_cookie_path():
     return None
 
 # ============================================
-# YT-DLP FUNCTIONS
+# UPDATED YT-DLP FUNCTIONS WITH BETTER OPTIONS
 # ============================================
 
+def download_audio(video_id):
+    """Download audio with better format selection"""
+    for f in glob.glob('temp_audio*') + glob.glob('*.mp3'):
+        try: os.remove(f)
+        except: pass
+
+    cookie_path = get_cookie_path()
+    
+    # Better audio extraction with multiple fallback formats
+    ydl_opts = {
+        'format': 'bestaudio[ext=m4a]/bestaudio[ext=aac]/bestaudio[ext=mp3]/bestaudio',
+        'postprocessors': [{
+            'key': 'FFmpegExtractAudio',
+            'preferredcodec': 'mp3',
+            'preferredquality': '192',
+        }],
+        'outtmpl': 'temp_audio',
+        'quiet': True,
+        'no_warnings': True,
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['android', 'ios', 'web'],
+                'skip': ['dash', 'hls'],
+            }
+        }
+    }
+    
+    if cookie_path and os.path.exists(cookie_path):
+        ydl_opts['cookiefile'] = cookie_path
+        st.write("🔑 Using session cookies...")
+    
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.download([f"https://youtu.be/{video_id}"])
+    except Exception as e:
+        st.error(f"❌ Audio download error: {str(e)}")
+        return None
+    
+    # Look for audio files with different extensions
+    audio_files = glob.glob('temp_audio.mp3') + glob.glob('temp_audio.m4a') + glob.glob('temp_audio.*')
+    return audio_files[0] if audio_files else None
+
 def download_captions(video_id, lang='de'):
+    """Download YouTube captions with better options"""
     for f in glob.glob('temp_subs*'):
         try: os.remove(f)
         except: pass
@@ -331,21 +374,23 @@ def download_captions(video_id, lang='de'):
         'outtmpl': 'temp_subs',
         'quiet': True,
         'ignoreerrors': True,
-        'extractor_args': {'youtube': ['player_client=ios,android']}
+        'extractor_args': {
+            'youtube': {
+                'player_client': ['android', 'ios', 'web'],
+                'skip': ['dash', 'hls'],
+            }
+        }
     }
     
     if cookie_path and os.path.exists(cookie_path):
         ydl_opts['cookiefile'] = cookie_path
         st.write("🔑 Using session cookies...")
-    else:
-        st.warning("⚠️ No cookies found, using anonymous access (may be blocked)")
     
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([f"https://youtu.be/{video_id}"])
     except Exception as e:
-        if "cookiefile" in str(e) or "HTTP Error 403" in str(e):
-            st.error("❌ Access blocked. Please upload valid cookies.txt")
+        st.error(f"❌ Caption download error: {str(e)}")
         return None
 
     files = glob.glob('temp_subs*.vtt')
@@ -362,38 +407,8 @@ def method_cc(video_id, lang):
     os.remove(vtt_file)
     return parse_vtt(vtt_content)
 
-def download_audio(video_id):
-    for f in glob.glob('temp_audio*') + glob.glob('*.mp3'):
-        try: os.remove(f)
-        except: pass
-
-    cookie_path = get_cookie_path()
-    
-    ydl_opts = {
-        'format': 'bestaudio/best',
-        'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3'}],
-        'outtmpl': 'temp_audio',
-        'quiet': True,
-        'extractor_args': {'youtube': ['player_client=ios,android']}
-    }
-    
-    if cookie_path and os.path.exists(cookie_path):
-        ydl_opts['cookiefile'] = cookie_path
-        st.write("🔑 Using session cookies...")
-    else:
-        st.warning("⚠️ No cookies found, using anonymous access (may be blocked)")
-    
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download([f"https://youtu.be/{video_id}"])
-    except Exception as e:
-        if "cookiefile" in str(e) or "HTTP Error 403" in str(e):
-            st.error("❌ Access blocked. Please upload valid cookies.txt")
-        return None
-    return 'temp_audio.mp3' if os.path.exists('temp_audio.mp3') else None
-
 # ============================================
-# UPDATED WHISPER METHOD USING FASTER-WHISPER
+# WHISPER METHOD USING FASTER-WHISPER
 # ============================================
 
 def method_whisper(video_id, lang, model_size):
@@ -417,14 +432,19 @@ def method_whisper(video_id, lang, model_size):
         # Load model with CPU and int8 for speed
         model = WhisperModel(model_name, device="cpu", compute_type="int8")
         
+        # Language mapping
+        lang_map = {"auto": None, "de": "de", "en": "en"}
+        whisper_lang = lang_map.get(lang, None)
+        
         # Transcribe with better settings
         segments_result, info = model.transcribe(
             audio_path,
-            language=lang if lang != 'auto' else None,
+            language=whisper_lang,
             beam_size=5,
             vad_filter=True,
             word_timestamps=True,
-            condition_on_previous_text=False
+            condition_on_previous_text=False,
+            temperature=0.0
         )
         
         # Convert to segments
@@ -496,39 +516,43 @@ if st.button("🚀 Load Sync Player", use_container_width=True):
         if not video_id:
             st.error("❌ Invalid URL")
         else:
-            if not st.session_state.get('cookies_uploaded', False):
-                st.warning("⚠️ No cookies uploaded. YouTube may block access. If it fails, upload cookies and try again.")
-            
             segments = None
             html_player = ""
             interleaved_text = original_text = translated_text = srt_content = ""
             
             with st.status("⏳ Video process hora, thoda sabr karo...", expanded=True) as status:
-                if "CC" in method_choice:
-                    st.write("📥 CC Captions download aur clean hore...")
-                    segments = method_cc(video_id, language)
-                else:
-                    st.write("📥 Audio download hora...")
-                    st.write("🎤 Faster-Whisper AI transcribe karra...")
-                    segments = method_whisper(video_id, language, model_size)
-
-                if not segments:
-                    status.update(label="❌ Failed to extract subtitles.", state="error")
-                    if not st.session_state.get('cookies_uploaded', False):
-                        st.info("💡 **Tip:** Upload your cookies.txt from a logged-in YouTube session to bypass access blocks.")
+                try:
+                    if "CC" in method_choice:
+                        st.write("📥 Trying to download YouTube CC...")
+                        segments = method_cc(video_id, language)
                     else:
-                        st.info("💡 **Tip:** Try a different video or use the YouTube CC method instead.")
-                else:
-                    st.write("🌍 English mein translate hora...")
-                    segments = translate_segments(segments)
-                    st.write("🎬 Player generate hora...")
-                    html_player = build_synced_player(segments, video_id)
-                    
-                    interleaved_text = '\n\n'.join([f"[{s['time']}] 🇩🇪 {s['text']}\n         🇬🇧 {s['translated']}" for s in segments])
-                    original_text = '\n'.join([f"[{s['time']}] {s['text']}" for s in segments])
-                    translated_text = '\n'.join([f"[{s['time']}] {s['translated']}" for s in segments])
-                    srt_content = format_srt(segments)
-                    status.update(label="✅ Player is Ready!", state="complete")
+                        st.write("📥 Downloading audio...")
+                        st.write("🎤 Transcribing with Faster-Whisper...")
+                        segments = method_whisper(video_id, language, model_size)
+
+                    if not segments:
+                        status.update(label="❌ Failed to extract subtitles.", state="error")
+                        st.error("❌ Could not get subtitles from this video.")
+                        st.info("💡 **Tips:**\n"
+                               "1. Make sure you've uploaded cookies.txt from a logged-in YouTube session\n"
+                               "2. Try a different video\n"
+                               "3. Try the other method (YouTube CC or Whisper)\n"
+                               "4. Some videos don't have captions available")
+                    else:
+                        st.write("🌍 Translating to English...")
+                        segments = translate_segments(segments)
+                        st.write("🎬 Building player...")
+                        html_player = build_synced_player(segments, video_id)
+                        
+                        interleaved_text = '\n\n'.join([f"[{s['time']}] 🇩🇪 {s['text']}\n         🇬🇧 {s['translated']}" for s in segments])
+                        original_text = '\n'.join([f"[{s['time']}] {s['text']}" for s in segments])
+                        translated_text = '\n'.join([f"[{s['time']}] {s['translated']}" for s in segments])
+                        srt_content = format_srt(segments)
+                        status.update(label="✅ Player is Ready!", state="complete")
+                        
+                except Exception as e:
+                    status.update(label="❌ Error occurred", state="error")
+                    st.error(f"❌ Error: {str(e)}")
 
             if segments and html_player:
                 st.markdown("---")
