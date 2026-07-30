@@ -53,7 +53,33 @@ def translate_segments(segments):
     return segments
 
 # ============================================
-# METHOD 1: YOUTUBE CC (WITH ADVANCED CLEANING & MERGER)
+# YOUTUBE CC CLEANING HELPERS
+# ============================================
+
+def remove_overlap(previous, current):
+    prev = previous.split()
+    curr = current.split()
+
+    max_overlap = min(len(prev), len(curr))
+
+    for i in range(max_overlap, 0, -1):
+        if prev[-i:] == curr[:i]:
+            return " ".join(curr[i:])
+
+    return current
+
+def remove_duplicate_words(text):
+    words = text.split()
+    result = []
+
+    for w in words:
+        if len(result) == 0 or result[-1] != w:
+            result.append(w)
+
+    return " ".join(result)
+
+# ============================================
+# METHOD 1: YOUTUBE CC (WITH CLEAN PARSER)
 # ============================================
 
 def download_captions(video_id, lang='de'):
@@ -88,7 +114,6 @@ def parse_vtt(vtt_content):
     current_time = ""
     block_lines = []
 
-    # Step 1: Raw VTT lines collect karo
     for line in vtt_content.split('\n'):
         line = line.strip()
 
@@ -111,77 +136,31 @@ def parse_vtt(vtt_content):
             text = " ".join(cleaned_block)
             raw_segments.append({'time': current_time, 'text': text})
 
-    # Step 2: 🔥 STRICT ROLLING WINDOW DE-DUPLICATION
-    # YouTube ke rolling text ko pakad kar sirf naya unique hissa nikalne ka logic
+    # Apply Overlap Removal & Clean Subtitles (Netflix Style - No forced merging)
     filtered_phrases = []
-    
+    previous_text = ""
+
     for seg in raw_segments:
-        text = seg['text'].strip()
-        
-        # Noise aur music tags hatao
+        text = seg["text"].strip()
+        text = remove_overlap(previous_text, text)
+        previous_text = seg["text"].strip()
+
+        if not text:
+            continue
+
         if text.lower() in ["[musik]", "[music]", "♪", "[räuspern]"]:
             continue
 
-        # Words mein todo taaki overlap check kar sakein
-        words = text.split()
-        if not words:
+        text = remove_duplicate_words(text)
+        if not text:
             continue
 
-        # Agar yeh sentence bilkul chota hai ya noise hai toh skip karo
-        if len(words) <= 2 and filtered_phrases and words[0].lower() == filtered_phrases[-1]['text'].split()[-1].lower():
-            continue
-
-        # Agar pichle segment ka aakhri hissa is naye segment ki shuruat mein repeat ho raha hai, toh overlap kaat do
-        if filtered_phrases:
-            last_text = filtered_phrases[-1]['text']
-            last_words = last_text.split()
-            
-            # Check overlap between words
-            overlap_index = -1
-            for i in range(len(words)):
-                # Match chunks of words
-                sub_chunk = " ".join(words[:i+1])
-                if sub_chunk.lower() in last_text.lower() and len(sub_chunk) > 5:
-                    overlap_index = i
-            
-            # Agar overlap mila, toh sirf naya (non-overlapping) hissa rakho
-            if overlap_index != -1 and overlap_index < len(words) - 1:
-                words = words[overlap_index+1:]
-                text = " ".join(words)
-
-        if text and len(text.strip()) > 1:
-            filtered_phrases.append({'time': seg['time'], 'text': text})
-
-    # Step 3: Full Sentence Merger (. ! ? ke basis par clean blocks banana)
-    final_sentences = []
-    current_time_slot = None
-    buffer_words = []
-
-    for seg in filtered_phrases:
-        if current_time_slot is None:
-            current_time_slot = seg['time']
-
-        buffer_words.extend(seg['text'].split())
-        current_sentence = " ".join(buffer_words)
-        current_sentence = re.sub(r'\s+', ' ', current_sentence).strip()
-
-        # Jab sentence full stop, exclamation, question mark pe khatam ho ya words limit reach ho jaye
-        if current_sentence.endswith(('.', '!', '?')) or len(buffer_words) >= 12:
-            final_sentences.append({
-                'time': current_time_slot,
-                'text': current_sentence
-            })
-            buffer_words = []
-            current_time_slot = None
-
-    # Bacha hua buffer dalne ke liye
-    if buffer_words:
-        final_sentences.append({
-            'time': current_time_slot if current_time_slot else "00:00:00.000",
-            'text': " ".join(buffer_words).strip()
+        filtered_phrases.append({
+            "time": seg["time"],
+            "text": text
         })
 
-    return final_sentences
+    return filtered_phrases
 
 def method_cc(video_id, lang):
     vtt_file = download_captions(video_id, lang)
@@ -229,7 +208,15 @@ def method_whisper(video_id, lang, model_size):
 
     model = whisper.load_model(model_size)
     lm = {"auto": None, "de": "de", "en": "en", "es": "es", "fr": "fr", "hi": "hi"}.get(lang, None)
-    result = model.transcribe(audio_path, language=lm, word_timestamps=True)
+    
+    # Enhanced Whisper configuration to avoid hallucinations and rolling issues
+    result = model.transcribe(
+        audio_path,
+        language=lm,
+        word_timestamps=True,
+        condition_on_previous_text=False,
+        vad_filter=True
+    )
     os.remove(audio_path)
 
     segments = []
@@ -257,7 +244,7 @@ def format_srt(segments):
     return '\n'.join(srt)
 
 # ============================================
-# BUILD SYNCED HTML PLAYER (FIXED LAYOUT & NO SCROLL OVERFLOW)
+# BUILD SYNCED HTML PLAYER (FIXED LAYOUT)
 # ============================================
 
 def build_synced_player(segments, video_id):
@@ -272,22 +259,18 @@ def build_synced_player(segments, video_id):
 * {{ margin: 0; padding: 0; box-sizing: border-box; }}
 body, html {{ height: 100%; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: #0a0a1a; overflow: hidden; }}
 
-/* Strict absolute locking to prevent video from scrolling out */
 .container {{ display: flex; flex-direction: column; height: 100vh; width: 100%; background: #1a1a2e; overflow: hidden; position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 9999; }}
 
-/* Video panel locked immovably at the top */
 .video-panel {{ flex-shrink: 0; width: 100%; background: #000; z-index: 100; box-shadow: 0 4px 10px rgba(0,0,0,0.5); }}
 .video-wrapper {{ position: relative; padding-bottom: 56.25%; height: 0; width: 100%; }}
 .video-wrapper iframe {{ position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: none; }}
 
-/* Transcript panel takes remaining space with independent inner scroll */
 .transcript-panel {{ flex: 1; display: flex; flex-direction: column; overflow: hidden; background: #1a1a2e; }}
 .header {{ padding: 10px 15px; background: #16213e; color: #e94560; font-weight: bold; font-size: 13px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #0f3460; flex-shrink: 0; }}
 .progress {{ height: 4px; background: #0f3460; width: 100%; flex-shrink: 0; }}
 .progress-fill {{ height: 100%; background: #e94560; width: 0%; transition: width 0.3s linear; }}
 .transcript-body {{ flex: 1; overflow-y: auto; padding: 15px; scroll-behavior: smooth; -webkit-overflow-scrolling: touch; }}
 
-/* Single Line Item styling */
 .line {{ padding: 14px; margin-bottom: 12px; border-radius: 10px; cursor: pointer; border-left: 4px solid transparent; background: rgba(255,255,255,0.02); transition: all 0.3s ease; }}
 .line:active {{ background: rgba(255,255,255,0.05); }}
 .line.active {{ background: rgba(233,69,96,0.2); border-left-color: #e94560; transform: scale(1.01); box-shadow: 0 4px 12px rgba(0,0,0,0.3); }}
@@ -398,7 +381,6 @@ st.set_page_config(page_title="Lerne Deutsch - Sync Player", page_icon="🎬", l
 
 st.markdown("<h2 style='text-align: center; color: #e94560;'>📱 Mobile Video Sync App</h2>", unsafe_allow_html=True)
 
-# Inputs
 url_input = st.text_input("📺 YouTube URL", placeholder="Paste YouTube Link Here...")
 
 col1, col2 = st.columns(2)
@@ -425,7 +407,7 @@ if st.button("🚀 Load Sync Player", use_container_width=True):
             with st.status("⏳ Video process hora, thoda sabr karo...", expanded=True) as status:
                 
                 if "CC" in method_choice:
-                    st.write("📥 CC Captions clean aur merge hore...")
+                    st.write("📥 CC Captions download aur clean hore...")
                     segments = method_cc(video_id, language)
                 else:
                     st.write("📥 Audio download hora...")
@@ -433,7 +415,7 @@ if st.button("🚀 Load Sync Player", use_container_width=True):
                     segments = method_whisper(video_id, language, "tiny") 
 
                 if not segments:
-                    status.update(label="❌ Failed to extract subtitles. (JavaScript / Cookie error)", state="error")
+                    status.update(label="❌ Failed to extract subtitles.", state="error")
                 else:
                     st.write("🌍 English mein translate hora...")
                     segments = translate_segments(segments)
@@ -450,7 +432,6 @@ if st.button("🚀 Load Sync Player", use_container_width=True):
 
             if segments and html_player:
                 st.markdown("---")
-                # 🔥 Fixed height taaki iframe ekdum clean space le
                 components.html(html_player, height=600, scrolling=False)
 
                 st.markdown("### 📝 Transcripts")
@@ -469,5 +450,5 @@ if st.button("🚀 Load Sync Player", use_container_width=True):
                     file_name=f"{video_id}_subtitles.srt",
                     mime="text/plain",
                     use_container_width=True
-    )
-                    
+                )
+                
