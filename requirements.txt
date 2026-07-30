@@ -1,5 +1,4 @@
-gradio
+streamlit
 yt-dlp
-openai-whisper
 deep-translator
 faster-whisper
