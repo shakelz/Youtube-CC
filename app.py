@@ -53,7 +53,7 @@ def translate_segments(segments):
     return segments
 
 # ============================================
-# METHOD 1: YOUTUBE CC (WITH FULL SENTENCE MERGER)
+# METHOD 1: YOUTUBE CC (WITH ADVANCED CLEANING & MERGER)
 # ============================================
 
 def download_captions(video_id, lang='de'):
@@ -88,6 +88,7 @@ def parse_vtt(vtt_content):
     current_time = ""
     block_lines = []
 
+    # Step 1: VTT ko raw blocks mein parse karo
     for line in vtt_content.split('\n'):
         line = line.strip()
 
@@ -110,26 +111,45 @@ def parse_vtt(vtt_content):
             text = " ".join(cleaned_block)
             raw_segments.append({'time': current_time, 'text': text})
 
-    # 🔥 SMART SENTENCE MERGER: Jabh tak sentence complete na ho (., !, ?), jodge jao!
+    # Step 2: YouTube ki rolling repetition aur infinite word-triplication ko saaf karo
+    unique_phrases = []
+    seen_texts = set()
+
+    for seg in raw_segments:
+        txt = seg['text'].strip()
+        # Music tags ya unwanted words ignore karo
+        if txt.lower() in ["[musik]", "[music]", "♪", "[räuspern]"]:
+            continue
+            
+        # YouTube auto-caption mein jo words bar-bar repeat hote hain (e.g. "was ist passiert was ist passiert") unko fix karna:
+        words = txt.split()
+        if len(words) > 6:
+            # Check for immediate internal repetition (half string matching)
+            half = len(words) // 2
+            if words[:half] == words[half:2*half]:
+                txt = " ".join(words[:half])
+
+        # Normalize lowercase for duplicate tracking
+        norm = txt.lower()
+        if norm not in seen_texts and len(txt) > 2:
+            seen_texts.add(norm)
+            unique_phrases.append({'time': seg['time'], 'text': txt})
+
+    # Step 3: Full Sentence Merger (Jab tak sentence complete na ho, jodge jao)
     merged_segments = []
     current_merged_time = None
     sentence_accumulator = []
 
-    for seg in raw_segments:
-        text = seg['text']
-        # Music tags ya unwanted words hatao agar pure akkele hon
-        if text.lower() in ["[musik]", "[music]", "♪"]:
-            continue
-
+    for seg in unique_phrases:
         if current_merged_time is None:
             current_merged_time = seg['time']
 
-        sentence_accumulator.append(text)
+        sentence_accumulator.append(seg['text'])
         full_text = " ".join(sentence_accumulator)
         full_text = re.sub(r'\s+', ' ', full_text).strip()
 
-        # Agar sentence mein full stop, exclamation ya question mark aa gaya, ya lamba ho gaya toh lock kardo
-        if full_text.endswith(('.', '!', '?')) or len(sentence_accumulator) >= 5:
+        # Agar sentence full stop, exclamation, question mark pe khatam ho ya lamba ho jaye
+        if full_text.endswith(('.', '!', '?')) or len(sentence_accumulator) >= 4:
             merged_segments.append({
                 'time': current_merged_time,
                 'text': full_text
@@ -137,7 +157,6 @@ def parse_vtt(vtt_content):
             sentence_accumulator = []
             current_merged_time = None
 
-    # Agar kuch bach gaya toh usko bhi daal do
     if sentence_accumulator:
         merged_segments.append({
             'time': current_merged_time if current_merged_time else "00:00:00.000",
@@ -220,7 +239,7 @@ def format_srt(segments):
     return '\n'.join(srt)
 
 # ============================================
-# BUILD SYNCED HTML PLAYER (MOBILE FIXED & STICKY VIDEO)
+# BUILD SYNCED HTML PLAYER (FIXED LAYOUT & NO SCROLL OVERFLOW)
 # ============================================
 
 def build_synced_player(segments, video_id):
@@ -235,22 +254,22 @@ def build_synced_player(segments, video_id):
 * {{ margin: 0; padding: 0; box-sizing: border-box; }}
 body, html {{ height: 100%; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: #0a0a1a; overflow: hidden; }}
 
-/* Fullscreen app layout with strict top-locked video */
-.container {{ display: flex; flex-direction: column; height: 100vh; width: 100%; background: #1a1a2e; overflow: hidden; position: fixed; top: 0; left: 0; right: 0; bottom: 0; }}
+/* Strict absolute locking to prevent video from scrolling out */
+.container {{ display: flex; flex-direction: column; height: 100vh; width: 100%; background: #1a1a2e; overflow: hidden; position: fixed; top: 0; left: 0; right: 0; bottom: 0; z-index: 9999; }}
 
-/* Video panel is strictly locked at the top */
+/* Video panel locked immovably at the top */
 .video-panel {{ flex-shrink: 0; width: 100%; background: #000; z-index: 100; box-shadow: 0 4px 10px rgba(0,0,0,0.5); }}
 .video-wrapper {{ position: relative; padding-bottom: 56.25%; height: 0; width: 100%; }}
 .video-wrapper iframe {{ position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: none; }}
 
-/* Transcript section takes the rest of the screen and scrolls independently */
+/* Transcript panel takes remaining space with independent inner scroll */
 .transcript-panel {{ flex: 1; display: flex; flex-direction: column; overflow: hidden; background: #1a1a2e; }}
 .header {{ padding: 10px 15px; background: #16213e; color: #e94560; font-weight: bold; font-size: 13px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #0f3460; flex-shrink: 0; }}
 .progress {{ height: 4px; background: #0f3460; width: 100%; flex-shrink: 0; }}
 .progress-fill {{ height: 100%; background: #e94560; width: 0%; transition: width 0.3s linear; }}
 .transcript-body {{ flex: 1; overflow-y: auto; padding: 15px; scroll-behavior: smooth; -webkit-overflow-scrolling: touch; }}
 
-/* Single Line Item */
+/* Single Line Item styling */
 .line {{ padding: 14px; margin-bottom: 12px; border-radius: 10px; cursor: pointer; border-left: 4px solid transparent; background: rgba(255,255,255,0.02); transition: all 0.3s ease; }}
 .line:active {{ background: rgba(255,255,255,0.05); }}
 .line.active {{ background: rgba(233,69,96,0.2); border-left-color: #e94560; transform: scale(1.01); box-shadow: 0 4px 12px rgba(0,0,0,0.3); }}
@@ -307,10 +326,10 @@ function update() {{
     if (!player || !player.getCurrentTime) return;
     var ct = player.getCurrentTime();
     var dur = player.getDuration();
-    if(dur > 0) document.getElementById('progress'].style.width = (ct/dur*100) + '%';
+    if(dur > 0) document.getElementById('progress').style.width = (ct/dur*100) + '%';
     
     var m = Math.floor(ct/60), s = Math.floor(ct%60);
-    document.getElementById('timer'].textContent = (m<10?'0':'')+m+':'+(s<10?'0':'')+s;
+    document.getElementById('timer').textContent = (m<10?'0':'')+m+':'+(s<10?'0':'')+s;
     
     var idx = -1;
     for (var i = segments.length-1; i >= 0; i--) {{
@@ -388,7 +407,7 @@ if st.button("🚀 Load Sync Player", use_container_width=True):
             with st.status("⏳ Video process hora, thoda sabr karo...", expanded=True) as status:
                 
                 if "CC" in method_choice:
-                    st.write("📥 CC Captions download hore aur merge hore...")
+                    st.write("📥 CC Captions clean aur merge hore...")
                     segments = method_cc(video_id, language)
                 else:
                     st.write("📥 Audio download hora...")
@@ -413,7 +432,7 @@ if st.button("🚀 Load Sync Player", use_container_width=True):
 
             if segments and html_player:
                 st.markdown("---")
-                # 🔥 Height ko 600px set kiya taaki mobile screen pe overflow na ho aur video sticky rahe
+                # 🔥 Fixed height taaki iframe ekdum clean space le
                 components.html(html_player, height=600, scrolling=False)
 
                 st.markdown("### 📝 Transcripts")
@@ -432,4 +451,5 @@ if st.button("🚀 Load Sync Player", use_container_width=True):
                     file_name=f"{video_id}_subtitles.srt",
                     mime="text/plain",
                     use_container_width=True
-                )
+    )
+                    
