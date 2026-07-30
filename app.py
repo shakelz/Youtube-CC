@@ -1,7 +1,7 @@
 import streamlit as st
 import streamlit.components.v1 as components
 import yt_dlp
-import whisper
+from faster_whisper import WhisperModel  # Replace import
 import re
 import os
 import glob
@@ -13,7 +13,7 @@ import time
 from deep_translator import GoogleTranslator
 
 # ============================================
-# COMMON FUNCTIONS
+# COMMON FUNCTIONS (Keep all your existing ones)
 # ============================================
 
 def extract_video_id(url):
@@ -246,7 +246,7 @@ function onYouTubeIframeAPIReady() {{
     return html_code
 
 # ============================================
-# SECURE COOKIE HANDLING
+# SECURE COOKIE HANDLING (Same as before)
 # ============================================
 
 def secure_cookie_upload():
@@ -312,18 +312,16 @@ def get_cookie_path():
     return None
 
 # ============================================
-# UPDATED YT-DLP FUNCTIONS - FIXED VERSION
+# UPDATED YT-DLP FUNCTIONS
 # ============================================
 
 def download_captions(video_id, lang='de'):
-    # Clean temp files
     for f in glob.glob('temp_subs*'):
         try: os.remove(f)
         except: pass
 
     cookie_path = get_cookie_path()
     
-    # CRITICAL FIX: Use better format selection and impersonation
     ydl_opts = {
         'writesubtitles': True,
         'writeautomaticsub': True,
@@ -331,84 +329,22 @@ def download_captions(video_id, lang='de'):
         'subtitlesformat': 'vtt',
         'skip_download': True,
         'outtmpl': 'temp_subs',
-        'quiet': False,  # Set to False to see more details
+        'quiet': True,
         'ignoreerrors': True,
-        'extractor_args': {
-            'youtube': {
-                'player_client': ['android', 'ios'],  # Try different clients
-                'player_skip': ['js', 'configs'],  # Skip some checks
-                'skip': ['dash', 'hls'],  # Skip DASH and HLS
-            }
-        },
-        # Add impersonation to bypass blocks
-        'impersonate': 'chrome-110',  # Or 'safari-15.5'
-        'format': 'bestvideo[height<=720]+bestaudio/best[height<=720]',
+        'cookiefile': cookie_path if cookie_path else None,
+        'extractor_args': {'youtube': ['player_client=ios,android']}
     }
-    
-    if cookie_path and os.path.exists(cookie_path):
-        ydl_opts['cookiefile'] = cookie_path
-        st.write("🔑 Using session cookies...")
-    else:
-        st.warning("⚠️ No cookies found, using anonymous access (may be blocked)")
+    # Remove None values
+    ydl_opts = {k: v for k, v in ydl_opts.items() if v is not None}
     
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             ydl.download([f"https://youtu.be/{video_id}"])
-    except Exception as e:
-        st.error(f"❌ Download error: {str(e)}")
+    except:
         return None
 
-    # Look for subtitle files with different patterns
-    files = glob.glob('temp_subs*.vtt') + glob.glob('*.vtt')
-    if not files:
-        # Try alternative formats
-        files = glob.glob('temp_subs*.srt') + glob.glob('*.srt')
-    
+    files = glob.glob('temp_subs*.vtt')
     return files[0] if files else None
-
-def download_audio(video_id):
-    # Clean temp files
-    for f in glob.glob('temp_audio*') + glob.glob('*.mp3'):
-        try: os.remove(f)
-        except: pass
-
-    cookie_path = get_cookie_path()
-    
-    # CRITICAL FIX: Better audio extraction
-    ydl_opts = {
-        'format': 'bestaudio[ext=m4a]/bestaudio[ext=aac]/bestaudio',
-        'postprocessors': [{
-            'key': 'FFmpegExtractAudio',
-            'preferredcodec': 'mp3',
-            'preferredquality': '192',
-        }],
-        'outtmpl': 'temp_audio',
-        'quiet': False,
-        'extractor_args': {
-            'youtube': {
-                'player_client': ['android', 'ios'],
-                'player_skip': ['js', 'configs'],
-            }
-        },
-        'impersonate': 'chrome-110',
-    }
-    
-    if cookie_path and os.path.exists(cookie_path):
-        ydl_opts['cookiefile'] = cookie_path
-        st.write("🔑 Using session cookies...")
-    else:
-        st.warning("⚠️ No cookies found, using anonymous access (may be blocked)")
-    
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download([f"https://youtu.be/{video_id}"])
-    except Exception as e:
-        st.error(f"❌ Audio download error: {str(e)}")
-        return None
-    
-    # Look for audio files
-    audio_files = glob.glob('temp_audio.mp3') + glob.glob('temp_audio.m4a') + glob.glob('temp_audio.*')
-    return audio_files[0] if audio_files else None
 
 def method_cc(video_id, lang):
     vtt_file = download_captions(video_id, lang)
@@ -416,35 +352,75 @@ def method_cc(video_id, lang):
         vtt_file = download_captions(video_id, 'en')
     if not vtt_file:
         return None
-    
     with open(vtt_file, 'r', encoding='utf-8') as f:
         vtt_content = f.read()
     os.remove(vtt_file)
     return parse_vtt(vtt_content)
+
+def download_audio(video_id):
+    for f in glob.glob('temp_audio*') + glob.glob('*.mp3'):
+        try: os.remove(f)
+        except: pass
+
+    cookie_path = get_cookie_path()
+    
+    ydl_opts = {
+        'format': 'bestaudio/best',
+        'postprocessors': [{'key': 'FFmpegExtractAudio', 'preferredcodec': 'mp3'}],
+        'outtmpl': 'temp_audio',
+        'quiet': True,
+        'cookiefile': cookie_path if cookie_path else None,
+        'extractor_args': {'youtube': ['player_client=ios,android']}
+    }
+    ydl_opts = {k: v for k, v in ydl_opts.items() if v is not None}
+    
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            ydl.download([f"https://youtu.be/{video_id}"])
+    except:
+        return None
+    return 'temp_audio.mp3' if os.path.exists('temp_audio.mp3') else None
+
+# ============================================
+# UPDATED WHISPER METHOD USING FASTER-WHISPER
+# ============================================
 
 def method_whisper(video_id, lang, model_size):
     audio_path = download_audio(video_id)
     if not audio_path:
         return None
     
-    model = whisper.load_model(model_size)
-    lm = {"auto": None, "de": "de", "en": "en", "es": "es", "fr": "fr", "hi": "hi"}.get(lang, None)
+    # Map model sizes
+    model_map = {
+        "tiny": "tiny",
+        "base": "base",
+        "small": "small",
+        "medium": "medium",
+        "large": "large"
+    }
     
-    result = model.transcribe(
+    model_name = model_map.get(model_size, "tiny")
+    # Load model (CPU with int8 for speed)
+    model = WhisperModel(model_name, device="cpu", compute_type="int8")
+    
+    # Transcribe
+    segments_result, info = model.transcribe(
         audio_path,
-        language=lm,
-        word_timestamps=True,
-        condition_on_previous_text=False,
-        vad_filter=True
+        language=lang if lang != 'auto' else None,
+        beam_size=5,
+        vad_filter=True,
+        word_timestamps=True
     )
-    os.remove(audio_path)
     
+    # Convert to segments
     segments = []
-    for seg in result.get('segments', []):
+    for seg in segments_result:
         segments.append({
-            'time': seconds_to_vtt(seg['start']),
-            'text': seg['text'].strip()
+            'time': seconds_to_vtt(seg.start),
+            'text': seg.text.strip()
         })
+    
+    os.remove(audio_path)
     return segments if segments else None
 
 # ============================================
@@ -479,6 +455,13 @@ with col1:
 with col2:
     language = st.selectbox("🎤 Language", ["de", "en", "auto"], index=0)
 
+# Add model size selector for Whisper
+if "Whisper" in method_choice:
+    model_size = st.selectbox("📊 Model Size", ["tiny", "base", "small"], index=0, 
+                              help="Tiny=fastest/least accurate, Small=slower/most accurate")
+else:
+    model_size = "tiny"
+
 if st.button("🚀 Load Sync Player", use_container_width=True):
     if not url_input:
         st.error("❌ Link toh daalo ustad!")
@@ -500,16 +483,13 @@ if st.button("🚀 Load Sync Player", use_container_width=True):
                     segments = method_cc(video_id, language)
                 else:
                     st.write("📥 Audio download hora...")
-                    st.write("🎤 Whisper AI transcribe karra...")
-                    segments = method_whisper(video_id, language, "tiny")
+                    st.write("🎤 Faster-Whisper AI transcribe karra...")
+                    segments = method_whisper(video_id, language, model_size)
 
                 if not segments:
                     status.update(label="❌ Failed to extract subtitles.", state="error")
                     if not st.session_state.get('cookies_uploaded', False):
                         st.info("💡 **Tip:** Upload your cookies.txt from a logged-in YouTube session to bypass access blocks.")
-                    else:
-                        st.error("❌ Still failing with cookies. This might be due to YouTube's anti-bot measures on cloud servers.")
-                        st.info("💡 **Alternative:** Try using the Whisper AI method instead, which only needs audio download.")
                 else:
                     st.write("🌍 English mein translate hora...")
                     segments = translate_segments(segments)
@@ -524,8 +504,7 @@ if st.button("🚀 Load Sync Player", use_container_width=True):
 
             if segments and html_player:
                 st.markdown("---")
-                # Replace deprecated components.html with st.iframe
-                st.iframe(html_player, height=600, width=None, scrolling=False)
+                components.html(html_player, height=600, scrolling=False)
 
                 st.markdown("### 📝 Transcripts")
                 tab1, tab2, tab3 = st.tabs(["Interleaved (DE + EN)", "German Only", "English Only"])
