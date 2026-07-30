@@ -312,18 +312,18 @@ def get_cookie_path():
     return None
 
 # ============================================
-# UPDATED YT-DLP FUNCTIONS WITH BETTER OPTIONS
+# IMPROVED YT-DLP FUNCTIONS WITH IMPERSONATION
 # ============================================
 
 def download_audio(video_id):
-    """Download audio with better format selection"""
-    for f in glob.glob('temp_audio*') + glob.glob('*.mp3'):
+    """Download audio with impersonation to bypass blocks"""
+    for f in glob.glob('temp_audio*') + glob.glob('*.mp3') + glob.glob('*.m4a'):
         try: os.remove(f)
         except: pass
 
     cookie_path = get_cookie_path()
     
-    # Better audio extraction with multiple fallback formats
+    # CRITICAL: Use impersonation to look like a real browser
     ydl_opts = {
         'format': 'bestaudio[ext=m4a]/bestaudio[ext=aac]/bestaudio[ext=mp3]/bestaudio',
         'postprocessors': [{
@@ -332,33 +332,65 @@ def download_audio(video_id):
             'preferredquality': '192',
         }],
         'outtmpl': 'temp_audio',
-        'quiet': True,
-        'no_warnings': True,
+        'quiet': False,
+        'no_warnings': False,
+        'ignoreerrors': True,
+        # CRITICAL: Impersonate Chrome browser
+        'impersonate': 'chrome-110',
+        # Use multiple clients
         'extractor_args': {
             'youtube': {
                 'player_client': ['android', 'ios', 'web'],
                 'skip': ['dash', 'hls'],
+                'player_skip': ['js', 'configs'],
             }
+        },
+        # Add headers to look like a browser
+        'headers': {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36',
+            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'Accept-Language': 'en-us,en;q=0.5',
+            'Sec-Fetch-Mode': 'navigate',
         }
     }
     
     if cookie_path and os.path.exists(cookie_path):
         ydl_opts['cookiefile'] = cookie_path
         st.write("🔑 Using session cookies...")
+    else:
+        st.warning("⚠️ No cookies found. Trying without cookies...")
     
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            ydl.download([f"https://youtu.be/{video_id}"])
+            # First try to get info to see available formats
+            st.write("📡 Fetching video info...")
+            info = ydl.extract_info(f"https://youtu.be/{video_id}", download=False)
+            
+            if info:
+                st.write(f"✅ Found video: {info.get('title', 'Unknown')[:50]}...")
+                
+                # Try downloading audio
+                st.write("⬇️ Downloading audio...")
+                ydl.download([f"https://youtu.be/{video_id}"])
+            else:
+                st.error("❌ Could not fetch video info")
+                return None
+                
     except Exception as e:
         st.error(f"❌ Audio download error: {str(e)}")
         return None
     
     # Look for audio files with different extensions
     audio_files = glob.glob('temp_audio.mp3') + glob.glob('temp_audio.m4a') + glob.glob('temp_audio.*')
-    return audio_files[0] if audio_files else None
+    if audio_files:
+        st.write(f"✅ Audio downloaded: {os.path.basename(audio_files[0])}")
+        return audio_files[0]
+    else:
+        st.error("❌ No audio file found after download")
+        return None
 
 def download_captions(video_id, lang='de'):
-    """Download YouTube captions with better options"""
+    """Download YouTube captions with impersonation"""
     for f in glob.glob('temp_subs*'):
         try: os.remove(f)
         except: pass
@@ -372,13 +404,18 @@ def download_captions(video_id, lang='de'):
         'subtitlesformat': 'vtt',
         'skip_download': True,
         'outtmpl': 'temp_subs',
-        'quiet': True,
+        'quiet': False,
         'ignoreerrors': True,
+        'impersonate': 'chrome-110',
         'extractor_args': {
             'youtube': {
                 'player_client': ['android', 'ios', 'web'],
                 'skip': ['dash', 'hls'],
+                'player_skip': ['js', 'configs'],
             }
+        },
+        'headers': {
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/110.0.0.0 Safari/537.36',
         }
     }
     
@@ -417,26 +454,23 @@ def method_whisper(video_id, lang, model_size):
         return None
     
     try:
-        # Map model sizes
         model_map = {
             "tiny": "tiny",
             "base": "base", 
             "small": "small",
             "medium": "medium",
-            "large": "large"
         }
         
         model_name = model_map.get(model_size, "tiny")
-        st.write(f"🔄 Loading {model_name} model... (This may take a moment)")
+        st.write(f"🔄 Loading {model_name} model... (This takes 30-60 seconds)")
         
         # Load model with CPU and int8 for speed
         model = WhisperModel(model_name, device="cpu", compute_type="int8")
         
-        # Language mapping
         lang_map = {"auto": None, "de": "de", "en": "en"}
         whisper_lang = lang_map.get(lang, None)
         
-        # Transcribe with better settings
+        st.write("🎤 Transcribing audio...")
         segments_result, info = model.transcribe(
             audio_path,
             language=whisper_lang,
@@ -447,7 +481,6 @@ def method_whisper(video_id, lang, model_size):
             temperature=0.0
         )
         
-        # Convert to segments
         segments = []
         for seg in segments_result:
             segments.append({
@@ -456,6 +489,7 @@ def method_whisper(video_id, lang, model_size):
             })
         
         os.remove(audio_path)
+        st.write(f"✅ Transcribed {len(segments)} segments")
         return segments if segments else None
         
     except Exception as e:
@@ -472,37 +506,37 @@ st.set_page_config(page_title="Lerne Deutsch - Sync Player", page_icon="🎬", l
 st.markdown("<h2 style='text-align: center; color: #e94560;'>📱 Mobile Video Sync App</h2>", unsafe_allow_html=True)
 
 # --- Cookie Upload Section ---
-with st.expander("🔐 Cookie Authentication (Required for YouTube Access)", expanded=False):
+with st.expander("🔐 Cookie Authentication (Required)", expanded=True):
     st.markdown("""
-    **Why do you need cookies?** YouTube often blocks cloud servers. Using your cookies from a logged-in browser session proves you're a real user.
+    **⚠️ IMPORTANT:** YouTube blocks cloud servers. You MUST upload cookies from a logged-in YouTube session.
     
     **How to get cookies:**
-    1. Install a browser extension like "Get cookies.txt LOCALLY"
+    1. Install extension: "Get cookies.txt LOCALLY" (Chrome/Firefox)
     2. Log into YouTube in your browser
-    3. Export cookies as `cookies.txt` (Netscape format)
+    3. Click extension → Export → Save as `cookies.txt`
     4. Upload below
     """)
     cookies_loaded = secure_cookie_upload()
 
 if not st.session_state.get('cookies_uploaded', False):
-    st.warning("⚠️ **YouTube access may be blocked** without cookies. Please upload your cookies.txt above.")
+    st.error("🚫 **YouTube access requires cookies!** Please upload your cookies.txt above.")
 
 # --- Main Input ---
 url_input = st.text_input("📺 YouTube URL", placeholder="Paste YouTube Link Here...")
 
 col1, col2 = st.columns(2)
 with col1:
-    method_choice = st.radio("🛠️ Method", ["⚡ YouTube CC", "🎤 Whisper AI"])
+    method_choice = st.radio("🛠️ Method", ["🎤 Whisper AI (Recommended)", "⚡ YouTube CC"])
 with col2:
     language = st.selectbox("🎤 Language", ["de", "en", "auto"], index=0)
 
 # Add model size selector for Whisper
 if "Whisper" in method_choice:
     model_size = st.selectbox(
-        "📊 Model Size", 
+        "📊 Model Size (Speed vs Accuracy)", 
         ["tiny", "base", "small", "medium"], 
-        index=0,
-        help="tiny=fastest/least accurate, medium=slower/most accurate"
+        index=1,
+        help="tiny=fastest, medium=most accurate"
     )
 else:
     model_size = "tiny"
@@ -511,6 +545,8 @@ else:
 if st.button("🚀 Load Sync Player", use_container_width=True):
     if not url_input:
         st.error("❌ Link toh daalo ustad!")
+    elif not st.session_state.get('cookies_uploaded', False):
+        st.error("❌ Please upload cookies.txt first!")
     else:
         video_id = extract_video_id(url_input)
         if not video_id:
@@ -520,24 +556,21 @@ if st.button("🚀 Load Sync Player", use_container_width=True):
             html_player = ""
             interleaved_text = original_text = translated_text = srt_content = ""
             
-            with st.status("⏳ Video process hora, thoda sabr karo...", expanded=True) as status:
+            with st.status("⏳ Processing video...", expanded=True) as status:
                 try:
                     if "CC" in method_choice:
-                        st.write("📥 Trying to download YouTube CC...")
+                        st.write("📥 Downloading YouTube CC...")
                         segments = method_cc(video_id, language)
                     else:
-                        st.write("📥 Downloading audio...")
-                        st.write("🎤 Transcribing with Faster-Whisper...")
                         segments = method_whisper(video_id, language, model_size)
 
                     if not segments:
                         status.update(label="❌ Failed to extract subtitles.", state="error")
                         st.error("❌ Could not get subtitles from this video.")
-                        st.info("💡 **Tips:**\n"
-                               "1. Make sure you've uploaded cookies.txt from a logged-in YouTube session\n"
+                        st.info("💡 **Troubleshooting:**\n"
+                               "1. Make sure cookies.txt is from a logged-in YouTube session\n"
                                "2. Try a different video\n"
-                               "3. Try the other method (YouTube CC or Whisper)\n"
-                               "4. Some videos don't have captions available")
+                               "3. The video might not have captions available")
                     else:
                         st.write("🌍 Translating to English...")
                         segments = translate_segments(segments)
