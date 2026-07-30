@@ -53,7 +53,7 @@ def translate_segments(segments):
     return segments
 
 # ============================================
-# METHOD 1: YOUTUBE CC (WITH SMART PARSER)
+# METHOD 1: YOUTUBE CC (WITH FULL SENTENCE MERGER)
 # ============================================
 
 def download_captions(video_id, lang='de'):
@@ -70,14 +70,8 @@ def download_captions(video_id, lang='de'):
         'outtmpl': 'temp_subs',
         'quiet': True,
         'ignoreerrors': True,
-        'cookiefile': 'cookies.txt', # Pukka cookies.txt is folder me hona
-        'extractor_args': {'youtube': ['player_client=ios,android']},
-        'nocheckcertificate': True,
-        'ignoreerrors': True,
-        'no_warnings': True,
-        'http_headers': {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-        }
+        'cookiefile': 'cookies.txt',
+        'extractor_args': {'youtube': ['player_client=ios,android']} 
     }
 
     try:
@@ -90,55 +84,67 @@ def download_captions(video_id, lang='de'):
     return files[0] if files else None
 
 def parse_vtt(vtt_content):
-    segments = []
+    raw_segments = []
     current_time = ""
     block_lines = []
-    last_block_lines = [] # Pichle block ko yaad rakhne ke liye
 
     for line in vtt_content.split('\n'):
         line = line.strip()
 
-        # Jab naya timestamp aaye
         if '-->' in line:
             if current_time and block_lines:
-                # HTML tags aur kachra saaf karo har line se
                 cleaned_block = [html.unescape(re.sub(r'<[^>]+>', '', l)).strip() for l in block_lines if l.strip()]
-                
                 if cleaned_block:
-                    # 🔥 THE MAGIC FIX: Rolling CC Detection
-                    # Agar naye block ki pehli line pichle block ki aakhri line se match hoti hai, toh usko uda do!
-                    if last_block_lines and (cleaned_block[0] in last_block_lines[-1] or last_block_lines[-1] in cleaned_block[0]):
-                        cleaned_block.pop(0) # Purana repeat hua text delete!
-                    
-                    if cleaned_block:
-                        # Bachi hui nayi lines ko jod do
-                        text = " ".join(cleaned_block)
-                        # Ek aakhri check: Agar exact sentence wapas aara toh ignore karo
-                        if not segments or segments[-1]['text'] != text:
-                            segments.append({'time': current_time, 'text': text})
-                        
-                        last_block_lines = cleaned_block
-            
+                    text = " ".join(cleaned_block)
+                    raw_segments.append({'time': current_time, 'text': text})
             current_time = line.split(' --> ')[0]
             block_lines = []
             
-        # Metadata skip karke text lines collect karo
         elif line and 'WEBVTT' not in line and not line.isdigit():
             if not line.startswith('Kind:') and not line.startswith('Language:') and not line.startswith('Style:'):
                 block_lines.append(line)
 
-    # Aakhri bache hue block ke liye
     if current_time and block_lines:
         cleaned_block = [html.unescape(re.sub(r'<[^>]+>', '', l)).strip() for l in block_lines if l.strip()]
         if cleaned_block:
-            if last_block_lines and (cleaned_block[0] in last_block_lines[-1] or last_block_lines[-1] in cleaned_block[0]):
-                cleaned_block.pop(0)
-            if cleaned_block:
-                text = " ".join(cleaned_block)
-                if not segments or segments[-1]['text'] != text:
-                    segments.append({'time': current_time, 'text': text})
+            text = " ".join(cleaned_block)
+            raw_segments.append({'time': current_time, 'text': text})
 
-    return segments
+    # 🔥 SMART SENTENCE MERGER: Jabh tak sentence complete na ho (., !, ?), jodge jao!
+    merged_segments = []
+    current_merged_time = None
+    sentence_accumulator = []
+
+    for seg in raw_segments:
+        text = seg['text']
+        # Music tags ya unwanted words hatao agar pure akkele hon
+        if text.lower() in ["[musik]", "[music]", "♪"]:
+            continue
+
+        if current_merged_time is None:
+            current_merged_time = seg['time']
+
+        sentence_accumulator.append(text)
+        full_text = " ".join(sentence_accumulator)
+        full_text = re.sub(r'\s+', ' ', full_text).strip()
+
+        # Agar sentence mein full stop, exclamation ya question mark aa gaya, ya lamba ho gaya toh lock kardo
+        if full_text.endswith(('.', '!', '?')) or len(sentence_accumulator) >= 5:
+            merged_segments.append({
+                'time': current_merged_time,
+                'text': full_text
+            })
+            sentence_accumulator = []
+            current_merged_time = None
+
+    # Agar kuch bach gaya toh usko bhi daal do
+    if sentence_accumulator:
+        merged_segments.append({
+            'time': current_merged_time if current_merged_time else "00:00:00.000",
+            'text': " ".join(sentence_accumulator).strip()
+        })
+
+    return merged_segments
 
 def method_cc(video_id, lang):
     vtt_file = download_captions(video_id, lang)
@@ -168,13 +174,7 @@ def download_audio(video_id):
         'outtmpl': 'temp_audio',
         'quiet': True,
         'cookiefile': 'cookies.txt',
-        'extractor_args': {'youtube': ['player_client=ios,android']},
-        'nocheckcertificate': True,
-        'ignoreerrors': True,
-        'no_warnings': True,
-        'http_headers': {
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-        }
+        'extractor_args': {'youtube': ['player_client=ios,android']}
     }
 
     try:
@@ -220,7 +220,7 @@ def format_srt(segments):
     return '\n'.join(srt)
 
 # ============================================
-# BUILD SYNCED HTML PLAYER (MOBILE OPTIMIZED)
+# BUILD SYNCED HTML PLAYER (MOBILE FIXED & STICKY VIDEO)
 # ============================================
 
 def build_synced_player(segments, video_id):
@@ -234,34 +234,35 @@ def build_synced_player(segments, video_id):
 <style>
 * {{ margin: 0; padding: 0; box-sizing: border-box; }}
 body, html {{ height: 100%; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; background: #0a0a1a; overflow: hidden; }}
-.container {{ display: flex; flex-direction: column; height: 100vh; width: 100%; background: #1a1a2e; overflow: hidden; }}
 
-/* Video stays locked at the top */
-.video-panel {{ flex-shrink: 0; width: 100%; background: #000; z-index: 10; position: sticky; top: 0; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }}
-.video-wrapper {{ position: relative; padding-bottom: 56.25%; height: 0; }}
+/* Fullscreen app layout with strict top-locked video */
+.container {{ display: flex; flex-direction: column; height: 100vh; width: 100%; background: #1a1a2e; overflow: hidden; position: fixed; top: 0; left: 0; right: 0; bottom: 0; }}
+
+/* Video panel is strictly locked at the top */
+.video-panel {{ flex-shrink: 0; width: 100%; background: #000; z-index: 100; box-shadow: 0 4px 10px rgba(0,0,0,0.5); }}
+.video-wrapper {{ position: relative; padding-bottom: 56.25%; height: 0; width: 100%; }}
 .video-wrapper iframe {{ position: absolute; top: 0; left: 0; width: 100%; height: 100%; border: none; }}
 
-/* Transcript section takes remaining space and scrolls independently */
+/* Transcript section takes the rest of the screen and scrolls independently */
 .transcript-panel {{ flex: 1; display: flex; flex-direction: column; overflow: hidden; background: #1a1a2e; }}
-.header {{ padding: 12px 15px; background: #16213e; color: #e94560; font-weight: bold; font-size: 14px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #0f3460; flex-shrink: 0; }}
+.header {{ padding: 10px 15px; background: #16213e; color: #e94560; font-weight: bold; font-size: 13px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #0f3460; flex-shrink: 0; }}
 .progress {{ height: 4px; background: #0f3460; width: 100%; flex-shrink: 0; }}
 .progress-fill {{ height: 100%; background: #e94560; width: 0%; transition: width 0.3s linear; }}
 .transcript-body {{ flex: 1; overflow-y: auto; padding: 15px; scroll-behavior: smooth; -webkit-overflow-scrolling: touch; }}
 
 /* Single Line Item */
-.line {{ padding: 15px; margin-bottom: 12px; border-radius: 10px; cursor: pointer; border-left: 4px solid transparent; background: rgba(255,255,255,0.02); transition: all 0.3s ease; }}
+.line {{ padding: 14px; margin-bottom: 12px; border-radius: 10px; cursor: pointer; border-left: 4px solid transparent; background: rgba(255,255,255,0.02); transition: all 0.3s ease; }}
 .line:active {{ background: rgba(255,255,255,0.05); }}
-.line.active {{ background: rgba(233,69,96,0.15); border-left-color: #e94560; transform: scale(1.02); box-shadow: 0 4px 10px rgba(0,0,0,0.2); }}
+.line.active {{ background: rgba(233,69,96,0.2); border-left-color: #e94560; transform: scale(1.01); box-shadow: 0 4px 12px rgba(0,0,0,0.3); }}
 
-.ts {{ color: #e94560; font-size: 12px; font-weight: bold; margin-bottom: 6px; display: inline-block; background: rgba(233,69,96,0.1); padding: 2px 8px; border-radius: 12px; }}
-.de {{ font-size: 18px; color: #ffffff; font-weight: 500; margin-bottom: 6px; line-height: 1.4; }}
-.en {{ font-size: 15px; color: #a0a0b5; font-style: italic; line-height: 1.3; }}
+.ts {{ color: #e94560; font-size: 11px; font-weight: bold; margin-bottom: 5px; display: inline-block; background: rgba(233,69,96,0.1); padding: 2px 8px; border-radius: 12px; }}
+.de {{ font-size: 17px; color: #ffffff; font-weight: 500; margin-bottom: 5px; line-height: 1.4; }}
+.en {{ font-size: 14px; color: #a0a0b5; font-style: italic; line-height: 1.3; }}
 
 .transcript-body::-webkit-scrollbar {{ width: 4px; }}
 .transcript-body::-webkit-scrollbar-track {{ background: transparent; }}
 .transcript-body::-webkit-scrollbar-thumb {{ background: #e94560; border-radius: 4px; }}
 </style>
-
 </head>
 <body>
 <div class="container">
@@ -306,10 +307,10 @@ function update() {{
     if (!player || !player.getCurrentTime) return;
     var ct = player.getCurrentTime();
     var dur = player.getDuration();
-    if(dur > 0) document.getElementById('progress').style.width = (ct/dur*100) + '%';
+    if(dur > 0) document.getElementById('progress'].style.width = (ct/dur*100) + '%';
     
     var m = Math.floor(ct/60), s = Math.floor(ct%60);
-    document.getElementById('timer').textContent = (m<10?'0':'')+m+':'+(s<10?'0':'')+s;
+    document.getElementById('timer'].textContent = (m<10?'0':'')+m+':'+(s<10?'0':'')+s;
     
     var idx = -1;
     for (var i = segments.length-1; i >= 0; i--) {{
@@ -377,15 +378,22 @@ if st.button("🚀 Load Sync Player", use_container_width=True):
         if not video_id:
             st.error("❌ Invalid URL")
         else:
+            segments = None
+            html_player = ""
+            interleaved_text = ""
+            original_text = ""
+            translated_text = ""
+            srt_content = ""
+            
             with st.status("⏳ Video process hora, thoda sabr karo...", expanded=True) as status:
                 
                 if "CC" in method_choice:
-                    st.write("📥 CC Captions download hore...")
+                    st.write("📥 CC Captions download hore aur merge hore...")
                     segments = method_cc(video_id, language)
                 else:
                     st.write("📥 Audio download hora...")
                     st.write("🎤 Whisper AI transcribe karra...")
-                    segments = method_whisper(video_id, language, "tiny") # Tiny use karna Streamlit ke liye
+                    segments = method_whisper(video_id, language, "tiny") 
 
                 if not segments:
                     status.update(label="❌ Failed to extract subtitles. (JavaScript / Cookie error)", state="error")
@@ -403,13 +411,11 @@ if st.button("🚀 Load Sync Player", use_container_width=True):
 
                     status.update(label="✅ Player is Ready!", state="complete")
 
-            # 🔥 YEH NAYA ADD KIYA: Sirf tab UI dikhao jab segments mil gaye ho
-            if segments:
-                # Display the Synced HTML Player
+            if segments and html_player:
                 st.markdown("---")
-                components.html(html_player, height=750, scrolling=False)
+                # 🔥 Height ko 600px set kiya taaki mobile screen pe overflow na ho aur video sticky rahe
+                components.html(html_player, height=600, scrolling=False)
 
-                # Display Text Outputs & Download Button
                 st.markdown("### 📝 Transcripts")
                 
                 tab1, tab2, tab3 = st.tabs(["Interleaved (DE + EN)", "German Only", "English Only"])
